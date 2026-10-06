@@ -1,0 +1,15 @@
+---
+Language: Cpp
+BasedOnStyle: Microsoft
+NamespaceIndentation: All
+BreakTemplateDeclarations: Yes
+ReferenceAlignment: Left
+PointerAlignment: Left
+EnumTrailingComma: Insert
+SpaceBeforeCpp11BracedList: true
+Cpp11BracedListStyle: false
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortCaseLabelsOnASingleLine: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true

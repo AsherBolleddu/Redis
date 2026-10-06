@@ -1,0 +1,10 @@
+CompileFlags:
+  Add:
+    - -std=c++23
+    - -Wall
+    - -Wextra
+    - -Weffc++
+    - -Wconversion
+    - -Wsign-conversion
+    - -pedantic-errors
+    - -Werror

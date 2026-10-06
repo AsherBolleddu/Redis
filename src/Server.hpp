@@ -1,7 +1,6 @@
 #pragma once
 #include "Config.hpp"
-#include <asio/io_context.hpp>
-#include <asio/ip/tcp.hpp>
+#include <asio.hpp>
 
 class Server
 {

@@ -2,27 +2,51 @@
 #include <array>
 #include <asio.hpp>
 #include <iostream>
+#include <string_view>
 #include <utility>
 
-Server::Server(Config cfg, asio::io_context& ioCtx)
-    : m_cfg { std::move(cfg) }, m_ioCtx { ioCtx }, m_acceptor { m_ioCtx, tcp::endpoint { tcp::v6(), m_cfg.PORT } }
+using asio::ip::tcp;
+
+namespace
 {
-}
+    asio::awaitable<void> pingHandler(tcp::socket client)
+    {
+        try
+        {
+            std::array<char, 1024> chunk {};
+            while (true)
+            {
+                auto [ec, nBytes] { co_await client.async_read_some(asio::buffer(chunk),
+                                                                    asio::as_tuple(asio::use_awaitable)) };
+                if (ec)
+                {
+                    if (ec != asio::error::eof)
+                        std::cerr << std::format("read error: {}\n", ec.message());
+                    co_return;
+                }
 
-void Server::serve()
+                constexpr std::string_view PONG { "+PONG\r\n" };
+                co_await asio::async_write(client, asio::buffer(PONG), asio::use_awaitable);
+            }
+        }
+        catch (const asio::system_error& e)
+        {
+            std::cerr << "Code: " << e.code() << ", Message: " << e.what() << '\n';
+        }
+    }
+} // namespace
+
+Server::Server(Config cfg) : m_cfg { std::move(cfg) } {}
+
+asio::awaitable<void> Server::serve()
 {
-    std::cout << "Waiting for a client to connect...\n";
 
-    tcp::socket client { m_ioCtx };
-    m_acceptor.accept(client);
-
-    std::cout << "Client connected\n";
-
+    auto executor { co_await asio::this_coro::executor };
+    tcp::acceptor acceptor { executor, { tcp::v6(), m_cfg.PORT } };
     while (true)
     {
-        std::array<char, 1024> chunk {};
-        client.read_some(asio::buffer(chunk));
-        const std::string reply { "+PONG\r\n" };
-        asio::write(client, asio::buffer(reply));
+
+        tcp::socket client { co_await acceptor.async_accept(asio::use_awaitable) };
+        asio::co_spawn(executor, pingHandler(std::move(client)), asio::detached);
     }
 }

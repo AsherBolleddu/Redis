@@ -1,6 +1,7 @@
 #include "Config.hpp"
 #include "Server.hpp"
 #include <asio.hpp>
+#include <csignal>
 #include <exception>
 #include <iostream>
 
@@ -15,9 +16,13 @@ int main()
 
     try
     {
-        asio::io_context ioCtx;
-        Server server { Config {}, ioCtx };
-        server.serve();
+        asio::io_context ioCtx { 1 };
+        asio::signal_set signals { ioCtx, SIGINT, SIGTERM };
+        signals.async_wait([&](auto, auto) { ioCtx.stop(); });
+
+        Server server { Config {} };
+        asio::co_spawn(ioCtx, server.serve(), asio::detached);
+        ioCtx.run();
     }
     catch (const std::exception& e)
     {

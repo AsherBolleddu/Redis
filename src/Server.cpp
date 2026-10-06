@@ -1,4 +1,5 @@
 #include "Server.hpp"
+#include <array>
 #include <asio.hpp>
 #include <iostream>
 #include <utility>
@@ -10,7 +11,6 @@ Server::Server(Config cfg, asio::io_context& ioCtx)
 
 void Server::serve()
 {
-
     std::cout << "Waiting for a client to connect...\n";
 
     tcp::socket client { m_ioCtx };
@@ -18,6 +18,11 @@ void Server::serve()
 
     std::cout << "Client connected\n";
 
-    constexpr std::string_view PONG { "+PONG\r\n" };
-    asio::write(client, asio::buffer(PONG));
+    while (true)
+    {
+        std::array<char, 1024> chunk {};
+        client.read_some(asio::buffer(chunk));
+        const std::string reply { "+PONG\r\n" };
+        asio::write(client, asio::buffer(reply));
+    }
 }

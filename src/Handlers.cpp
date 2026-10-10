@@ -1,7 +1,13 @@
 #include "Handlers.hpp"
 #include "RESP.hpp"
+#include <cctype>
+#include <charconv>
+#include <chrono>
 #include <format>
 #include <functional>
+#include <optional>
+#include <ranges>
+#include <system_error>
 
 namespace
 {
@@ -26,10 +32,33 @@ std::string Handlers::echo(std::span<const std::string_view> data)
 
 std::string Handlers::set(std::span<const std::string_view> data)
 {
-    if (data.size() != 2)
+    if (data.size() != 2 && data.size() != 4)
         return wrongNArgsErr("set");
 
-    m_kvStore.insert_or_assign(std::string { data.front() }, data.back());
+    std::optional<std::chrono::steady_clock::time_point> expiresAt {};
+    if (data.size() == 4)
+    {
+        auto unit { data[2] |
+                    std::ranges::views::transform([](unsigned char c) { return static_cast<char>(std::tolower(c)); }) |
+                    std::ranges::to<std::string>() };
+        if (unit != "px" && unit != "ex")
+            return "-ERR syntax error\r\n";
+
+        auto durationSV { data[3] };
+        long long duration {};
+        auto [ptr, ec] { std::from_chars(durationSV.data(), durationSV.data() + durationSV.size(), duration) };
+        if (ec != std::errc {} || ptr != durationSV.data() + durationSV.size())
+            return "-ERR value is not an integer or out of range\r\n";
+
+        if (duration <= 0)
+            return "-ERR invalid expire time in 'set' command";
+
+        expiresAt = std::chrono::steady_clock::now() +
+                    (unit == "px" ? std::chrono::milliseconds { duration } : std::chrono::seconds { duration });
+    }
+
+    Value val { .data { data[1] }, .expiresAt { std::move(expiresAt) } };
+    m_kvStore.insert_or_assign(std::string { data.front() }, std::move(val));
 
     return "+OK\r\n";
 }
@@ -40,9 +69,14 @@ std::string Handlers::get(std::span<const std::string_view> data)
         return wrongNArgsErr("get");
 
     if (auto it { m_kvStore.find(std::string { data.front() }) }; it != m_kvStore.end())
-        return std::format("${}\r\n{}\r\n", it->second.size(), it->second);
+    {
+        if (it->second.expiresAt && std::chrono::steady_clock::now() > *it->second.expiresAt)
+            return "$-1\r\n";
+        else
+            return std::format("${}\r\n{}\r\n", it->second.data.size(), it->second.data);
+    }
 
-    return "-1\r\n";
+    return "$-1\r\n";
 }
 
 std::string Handlers::execute(const RESP::BulkString& request)

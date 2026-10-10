@@ -1,15 +1,16 @@
 #include "Handlers.hpp"
+#include "Helpers.hpp"
 #include "RESP.hpp"
+#include <algorithm>
 #include <cctype>
-#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <format>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <ranges>
 #include <string>
-#include <system_error>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -21,20 +22,27 @@ namespace
         return std::format("-ERR wrong number of arguments for '{}' command\r\n", command);
     }
 
+    constexpr std::string_view intOutOfRangeErr { "-ERR value is not an integer or out of range\r\n" };
     constexpr std::string_view wrongTypeErr {
         "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
     };
+    constexpr std::string_view emptyArray { "*0\r\n" };
 } // namespace
 
-void Handlers::removeIfExpired(const std::string& key)
+Handlers::Store::iterator Handlers::findLive(const std::string& key)
 {
     const auto it { m_kvStore.find(key) };
     if (it == m_kvStore.end())
-        return;
+        return it;
 
     const auto& entry { it->second };
     if (entry.expiresAt && std::chrono::steady_clock::now() > *entry.expiresAt)
+    {
         m_kvStore.erase(it);
+        return m_kvStore.end();
+    }
+
+    return it;
 }
 
 std::string Handlers::ping(std::span<const std::string_view>)
@@ -66,16 +74,15 @@ std::string Handlers::set(std::span<const std::string_view> data)
             return "-ERR syntax error\r\n";
 
         const auto durationSV { data[3] };
-        long long duration {};
-        const auto [ptr, ec] { std::from_chars(durationSV.data(), durationSV.data() + durationSV.size(), duration) };
-        if (ec != std::errc {} || ptr != durationSV.data() + durationSV.size())
-            return "-ERR value is not an integer or out of range\r\n";
+        const auto duration { Helpers::parseNum<long long>(durationSV) };
+        if (!duration)
+            return std::string { intOutOfRangeErr };
 
-        if (duration <= 0)
+        if (*duration <= 0)
             return "-ERR invalid expire time in 'set' command\r\n";
 
         expiresAt = std::chrono::steady_clock::now() +
-                    (unit == "px" ? std::chrono::milliseconds { duration } : std::chrono::seconds { duration });
+                    (unit == "px" ? std::chrono::milliseconds { *duration } : std::chrono::seconds { *duration });
     }
 
     Value val { .data { std::string { data[1] } }, .expiresAt { expiresAt } };
@@ -90,9 +97,7 @@ std::string Handlers::get(std::span<const std::string_view> data)
         return wrongNArgsErr("get");
 
     const std::string key { data.front() };
-    removeIfExpired(key);
-
-    const auto it { m_kvStore.find(key) };
+    const auto it { findLive(key) };
     if (it == m_kvStore.end())
         return "$-1\r\n";
 
@@ -109,9 +114,9 @@ std::string Handlers::rpush(std::span<const std::string_view> data)
         return wrongNArgsErr("rpush");
 
     const std::string key { data.front() };
-    removeIfExpired(key);
-
-    const auto [it, res] { m_kvStore.try_emplace(key, Value { .data { std::vector<std::string> {} }, .expiresAt {} }) };
+    auto it { findLive(key) };
+    if (it == m_kvStore.end())
+        it = m_kvStore.try_emplace(key, Value { .data { std::vector<std::string> {} }, .expiresAt {} }).first;
 
     auto* list { std::get_if<std::vector<std::string>>(&it->second.data) };
     if (!list)
@@ -123,14 +128,47 @@ std::string Handlers::rpush(std::span<const std::string_view> data)
     return std::format(":{}\r\n", list->size());
 }
 
+std::string Handlers::lrange(std::span<const std::string_view> data)
+{
+    if (data.size() != 3)
+        return wrongNArgsErr("lrange");
+
+    const std::string key { data.front() };
+    const auto it { findLive(key) };
+    if (it == m_kvStore.end())
+        return std::string { emptyArray };
+
+    const auto start { Helpers::parseNum<std::size_t>(data[1]) };
+    const auto stop { Helpers::parseNum<std::size_t>(data[2]) };
+
+    if (!stop || !start)
+        return std::string { intOutOfRangeErr };
+
+    const auto* list { std::get_if<std::vector<std::string>>(&it->second.data) };
+    if (!list)
+        return std::string { wrongTypeErr };
+
+    if (*start >= list->size())
+        return std::string { emptyArray };
+
+    const auto last = std::min(list->size() - 1, *stop);
+
+    if (*start > last)
+        return std::string { emptyArray };
+
+    std::string output { std::format("*{}\r\n", last - *start + 1) };
+
+    for (auto i { *start }; i <= last; ++i)
+        std::format_to(std::back_inserter(output), "${}\r\n{}\r\n", (*list)[i].size(), (*list)[i]);
+
+    return output;
+}
+
 std::string Handlers::execute(const RESP::BulkString& request)
 {
     static const std::unordered_map<std::string, std::string (Handlers::*)(std::span<const std::string_view>)>
-        dispatchTable { { "ping", &Handlers::ping },
-                        { "echo", &Handlers::echo },
-                        { "set", &Handlers::set },
-                        { "get", &Handlers::get },
-                        { "rpush", &Handlers::rpush } };
+        dispatchTable { { "ping", &Handlers::ping }, { "echo", &Handlers::echo },   { "set", &Handlers::set },
+                        { "get", &Handlers::get },   { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange } };
 
     if (const auto it { dispatchTable.find(request.command) }; it != dispatchTable.end())
         return std::invoke(it->second, this, request.data);

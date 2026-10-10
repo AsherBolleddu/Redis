@@ -19,14 +19,17 @@ private:
         std::optional<std::chrono::steady_clock::time_point> expiresAt;
     };
 
-    std::unordered_map<std::string, Value> m_kvStore;
+    using Store = std::unordered_map<std::string, Value>;
+
+    Store m_kvStore;
     std::string ping(std::span<const std::string_view>);
     std::string echo(std::span<const std::string_view>);
     std::string set(std::span<const std::string_view>);
     std::string get(std::span<const std::string_view>);
     std::string rpush(std::span<const std::string_view>);
+    std::string lrange(std::span<const std::string_view>);
 
-    void removeIfExpired(const std::string& key);
+    Store::iterator findLive(const std::string& key);
 
 public:
     std::string execute(const RESP::BulkString& request);

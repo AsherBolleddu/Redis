@@ -1,12 +1,11 @@
 #include "RESP.hpp"
+#include "Helpers.hpp"
 #include <cctype>
-#include <charconv>
 #include <cstddef>
 #include <expected>
 #include <optional>
 #include <ranges>
 #include <string_view>
-#include <system_error>
 
 namespace RESP
 {
@@ -24,13 +23,13 @@ namespace RESP
             return std::unexpected { Incomplete };
 
         const auto lenSV { input.substr(1, pos - 1) }; // [1, 1 + 2 - 1 = 2)
-        std::size_t len {};
-        const auto [ptr, ec] { std::from_chars(lenSV.data(), lenSV.data() + lenSV.size(), len) };
-        if (ec != std::errc {} || ptr != lenSV.data() + lenSV.size())
+
+        const auto len { Helpers::parseNum<std::size_t>(lenSV) };
+        if (!len)
             return std::unexpected { Malformed };
 
         input.remove_prefix(pos + 2);
-        return len;
+        return *len;
     }
 
     std::expected<std::string_view, ParseError> parseBulkString(std::string_view& input)

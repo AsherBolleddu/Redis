@@ -19,13 +19,13 @@ namespace RESP
         if (input[0] != prefix)
             return std::unexpected { Malformed };
 
-        auto pos { input.find("\r\n") };
+        const auto pos { input.find("\r\n") };
         if (pos == std::string_view::npos)
             return std::unexpected { Incomplete };
 
-        auto lenSV { input.substr(1, pos - 1) }; // [1, 1 + 2 - 1 = 2)
+        const auto lenSV { input.substr(1, pos - 1) }; // [1, 1 + 2 - 1 = 2)
         std::size_t len {};
-        auto [ptr, ec] { std::from_chars(lenSV.data(), lenSV.data() + lenSV.size(), len) };
+        const auto [ptr, ec] { std::from_chars(lenSV.data(), lenSV.data() + lenSV.size(), len) };
         if (ec != std::errc {} || ptr != lenSV.data() + lenSV.size())
             return std::unexpected { Malformed };
 
@@ -37,14 +37,14 @@ namespace RESP
     {
         using enum ParseError;
 
-        auto len { parseLength(input, '$') };
+        const auto len { parseLength(input, '$') };
         if (!len)
             return std::unexpected { len.error() };
 
         if (input.size() < *len + 2)
             return std::unexpected { Incomplete };
 
-        auto data { input.substr(0, *len) }; // [0, 0 + 4 = 4)
+        const auto data { input.substr(0, *len) }; // [0, 0 + 4 = 4)
 
         input.remove_prefix(*len + 2);
         return data;
@@ -57,16 +57,16 @@ namespace RESP
          * 2. Parse the command ($m\r\nCOMMAND\r\n)
          * 3. Parse the data ($p\r\nDATA\r\n)
          */
-        auto originalSize { input.size() };
+        const auto originalSize { input.size() };
 
-        auto numElements { parseLength(input, '*') };
+        const auto numElements { parseLength(input, '*') };
         if (!numElements)
             return std::unexpected { numElements.error() };
 
         if (numElements == 0)
             return Request { .info { std::nullopt }, .bytesConsumed = originalSize - input.size() };
 
-        auto commandSV { parseBulkString(input) };
+        const auto commandSV { parseBulkString(input) };
         if (!commandSV)
             return std::unexpected { commandSV.error() };
 
@@ -78,7 +78,7 @@ namespace RESP
 
         for (auto i { 1uz }; i < *numElements; ++i)
         {
-            auto data { parseBulkString(input) };
+            const auto data { parseBulkString(input) };
             if (!data)
                 return std::unexpected { data.error() };
             request.info->data.push_back(*data);

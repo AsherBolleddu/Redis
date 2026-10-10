@@ -7,13 +7,15 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 class Handlers
 {
 private:
     struct Value
     {
-        std::string data;
+        std::variant<std::string, std::vector<std::string>> data;
         std::optional<std::chrono::steady_clock::time_point> expiresAt;
     };
 
@@ -22,6 +24,7 @@ private:
     std::string echo(std::span<const std::string_view>);
     std::string set(std::span<const std::string_view>);
     std::string get(std::span<const std::string_view>);
+    std::string rpush(std::span<const std::string_view>);
 
 public:
     std::string execute(const RESP::BulkString& request);

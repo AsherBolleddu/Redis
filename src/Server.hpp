@@ -10,5 +10,7 @@ private:
 public:
     Server(Config cfg);
 
-    asio::awaitable<void> serve();
+    asio::awaitable<void> serve() const;
+
+    asio::awaitable<void> handleClient(asio::ip::tcp::socket socket) const;
 };

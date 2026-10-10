@@ -81,7 +81,7 @@ namespace RESP
             auto data { parseBulkString(input) };
             if (!data)
                 return std::unexpected { data.error() };
-            request.info->data.emplace_back(*data);
+            request.info->data.push_back(*data);
         }
 
         request.bytesConsumed = originalSize - input.size();

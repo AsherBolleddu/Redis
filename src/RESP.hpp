@@ -18,7 +18,7 @@ namespace RESP
     struct BulkString
     {
         std::string command;
-        std::vector<std::string> data;
+        std::vector<std::string_view> data;
     };
 
     struct Request

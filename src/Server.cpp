@@ -1,5 +1,4 @@
 #include "Server.hpp"
-#include "Handlers.hpp"
 #include "RESP.hpp"
 #include <array>
 #include <asio.hpp>
@@ -13,7 +12,7 @@ using asio::ip::tcp;
 
 Server::Server(Config cfg) : m_cfg { std::move(cfg) } {}
 
-asio::awaitable<void> Server::serve() const
+asio::awaitable<void> Server::serve()
 {
 
     auto executor { co_await asio::this_coro::executor };
@@ -26,11 +25,12 @@ asio::awaitable<void> Server::serve() const
     }
 }
 
-asio::awaitable<void> Server::handleClient(tcp::socket socket) const
+asio::awaitable<void> Server::handleClient(tcp::socket socket)
 {
     try
     {
-        std::string buffer {};
+        std::string input {};
+        std::string output {};
         std::array<char, 1024> chunk {};
         while (true)
         {
@@ -44,11 +44,11 @@ asio::awaitable<void> Server::handleClient(tcp::socket socket) const
                 break;
             }
 
-            buffer.append(chunk.data(), nBytes);
+            input.append(chunk.data(), nBytes);
 
             while (true)
             {
-                auto request { RESP::parseRequest(buffer) };
+                auto request { RESP::parseRequest(input) };
                 if (!request)
                 {
                     if (request.error() == RESP::ParseError::Incomplete)
@@ -57,25 +57,27 @@ asio::awaitable<void> Server::handleClient(tcp::socket socket) const
                     if (request.error() == RESP::ParseError::Malformed)
                     {
                         constexpr std::string_view protocolError { "-ERR Protocol error\r\n" };
-                        co_await asio::async_write(socket, asio::buffer(protocolError), asio::use_awaitable);
+                        output += protocolError;
+                        co_await asio::async_write(socket, asio::buffer(output), asio::use_awaitable);
+                        output.clear();
                         co_return;
                     }
                 }
 
                 if (!request->info)
                 {
-                    buffer.erase(0, request->bytesConsumed);
+                    input.erase(0, request->bytesConsumed);
                     continue;
                 }
 
-                /*
-                 * 1. Find the command in the unordered_map
-                 * 2. If it exists, execute the handler associated with that command, and return the output
-                 * 3. If it doesn't exist, send -ERR unknown command '{Command}\r\n' and return
-                 */
-                auto reply { Handlers::execute(*request->info) };
-                co_await asio::async_write(socket, asio::buffer(reply), asio::use_awaitable);
-                buffer.erase(0, request->bytesConsumed);
+                output += m_handler.execute(*request->info);
+                input.erase(0, request->bytesConsumed);
+            }
+
+            if (!output.empty())
+            {
+                co_await asio::async_write(socket, asio::buffer(output), asio::use_awaitable);
+                output.clear();
             }
         }
     }

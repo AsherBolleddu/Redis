@@ -138,8 +138,8 @@ std::string Handlers::lrange(std::span<const std::string_view> data)
     if (it == m_kvStore.end())
         return std::string { emptyArray };
 
-    const auto start { Helpers::parseNum<std::size_t>(data[1]) };
-    const auto stop { Helpers::parseNum<std::size_t>(data[2]) };
+    auto start { Helpers::parseNum<std::ptrdiff_t>(data[1]) };
+    auto stop { Helpers::parseNum<std::ptrdiff_t>(data[2]) };
 
     if (!stop || !start)
         return std::string { intOutOfRangeErr };
@@ -148,18 +148,27 @@ std::string Handlers::lrange(std::span<const std::string_view> data)
     if (!list)
         return std::string { wrongTypeErr };
 
-    if (*start >= list->size())
+    const auto listSize { std::ssize(*list) };
+
+    if (*start < 0)
+        *start = std::max(*start + listSize, std::ptrdiff_t { 0 });
+
+    if (*stop < 0)
+        *stop += listSize;
+
+    if (*start >= listSize)
         return std::string { emptyArray };
 
-    const auto last = std::min(list->size() - 1, *stop);
+    *stop = std::min(listSize - 1, *stop);
 
-    if (*start > last)
+    if (*start > *stop)
         return std::string { emptyArray };
 
-    std::string output { std::format("*{}\r\n", last - *start + 1) };
+    std::string output { std::format("*{}\r\n", *stop - *start + 1) };
 
-    for (auto i { *start }; i <= last; ++i)
-        std::format_to(std::back_inserter(output), "${}\r\n{}\r\n", (*list)[i].size(), (*list)[i]);
+    for (; *start <= *stop; ++(*start))
+        std::format_to(std::back_inserter(output), "${}\r\n{}\r\n", (*list)[static_cast<std::size_t>(*start)].size(),
+                       (*list)[static_cast<std::size_t>(*start)]);
 
     return output;
 }

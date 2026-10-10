@@ -26,6 +26,8 @@ private:
     std::string get(std::span<const std::string_view>);
     std::string rpush(std::span<const std::string_view>);
 
+    void removeIfExpired(const std::string& key);
+
 public:
     std::string execute(const RESP::BulkString& request);
 };

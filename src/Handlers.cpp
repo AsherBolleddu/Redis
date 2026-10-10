@@ -7,7 +7,9 @@
 #include <functional>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 
@@ -17,7 +19,22 @@ namespace
     {
         return std::format("-ERR wrong number of arguments for '{}' command\r\n", command);
     }
+
+    constexpr std::string_view wrongTypeErr {
+        "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+    };
 } // namespace
+
+void Handlers::removeIfExpired(const std::string& key)
+{
+    const auto it { m_kvStore.find(key) };
+    if (it == m_kvStore.end())
+        return;
+
+    const auto& entry { it->second };
+    if (entry.expiresAt && std::chrono::steady_clock::now() > *entry.expiresAt)
+        m_kvStore.erase(it);
+}
 
 std::string Handlers::ping(std::span<const std::string_view>)
 {
@@ -71,20 +88,18 @@ std::string Handlers::get(std::span<const std::string_view> data)
     if (data.size() != 1)
         return wrongNArgsErr("get");
 
-    if (const auto it { m_kvStore.find(std::string { data.front() }) }; it != m_kvStore.end())
-    {
-        const auto& entry { it->second };
-        if (entry.expiresAt && std::chrono::steady_clock::now() > *entry.expiresAt)
-            return "$-1\r\n";
+    const std::string key { data.front() };
+    removeIfExpired(key);
 
-        const auto* str { std::get_if<std::string>(&entry.data) };
-        if (!str)
-            return "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n";
+    const auto it { m_kvStore.find(key) };
+    if (it == m_kvStore.end())
+        return "$-1\r\n";
 
-        return std::format("${}\r\n{}\r\n", str->size(), *str);
-    }
+    const auto* str { std::get_if<std::string>(&it->second.data) };
+    if (!str)
+        return std::string { wrongTypeErr };
 
-    return "$-1\r\n";
+    return std::format("${}\r\n{}\r\n", str->size(), *str);
 }
 
 std::string Handlers::rpush(std::span<const std::string_view> data)
@@ -92,15 +107,16 @@ std::string Handlers::rpush(std::span<const std::string_view> data)
     if (data.size() != 2)
         return wrongNArgsErr("rpush");
 
-    const auto [it, res] { m_kvStore.insert(
-        std::make_pair(data[0], std::vector<std::string> { std::string { data[1] } })) };
+    const std::string key { data.front() };
+    removeIfExpired(key);
+
+    const auto [it, res] { m_kvStore.try_emplace(key, Value { .data { std::vector<std::string> {} }, .expiresAt {} }) };
+
     auto* list { std::get_if<std::vector<std::string>>(&it->second.data) };
     if (!list)
-        return "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n";
+        return std::string { wrongTypeErr };
 
-    if (!res)
-        list->emplace_back(data[1]);
-
+    list->emplace_back(data[1]);
     return std::format(":{}\r\n", list->size());
 }
 

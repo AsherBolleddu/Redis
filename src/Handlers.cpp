@@ -3,6 +3,7 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <format>
 #include <functional>
 #include <optional>
@@ -104,7 +105,7 @@ std::string Handlers::get(std::span<const std::string_view> data)
 
 std::string Handlers::rpush(std::span<const std::string_view> data)
 {
-    if (data.size() != 2)
+    if (data.size() < 2)
         return wrongNArgsErr("rpush");
 
     const std::string key { data.front() };
@@ -116,7 +117,9 @@ std::string Handlers::rpush(std::span<const std::string_view> data)
     if (!list)
         return std::string { wrongTypeErr };
 
-    list->emplace_back(data[1]);
+    for (auto elem : data.subspan(1, data.size() - 1))
+        list->emplace_back(elem);
+
     return std::format(":{}\r\n", list->size());
 }
 

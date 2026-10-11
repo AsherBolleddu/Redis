@@ -28,6 +28,7 @@ namespace
         "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
     };
     constexpr std::string_view emptyArray { "*0\r\n" };
+    constexpr std::string_view nullBulkString { "$-1\r\n" };
 } // namespace
 
 bool Handlers::isExpired(const Value& entry)
@@ -104,7 +105,7 @@ std::string Handlers::get(std::span<const std::string_view> data)
     const std::string key { data.front() };
     const auto it { findLive(key) };
     if (it == m_kvStore.end())
-        return "$-1\r\n";
+        return std::string { nullBulkString };
 
     const auto* str { std::get_if<std::string>(&it->second.data) };
     if (!str)
@@ -217,12 +218,31 @@ std::string Handlers::llen(std::span<const std::string_view> data)
     return std::format(":{}\r\n", list->size());
 }
 
+std::string Handlers::lpop(std::span<const std::string_view> data)
+{
+    if (data.size() != 1)
+        return wrongNArgsErr("lpop");
+
+    auto it { findLive(std::string { data[0] }) };
+    if (it == m_kvStore.end())
+        return std::string { nullBulkString };
+
+    auto* list { std::get_if<std::vector<std::string>>(&it->second.data) };
+    if (!list)
+        return std::string { wrongTypeErr };
+
+    auto first { list->front() };
+    list->erase(list->begin());
+
+    return std::format("${}\r\n{}\r\n", first.size(), first);
+}
+
 std::string Handlers::execute(const RESP::BulkString& request)
 {
     static const std::unordered_map<std::string, std::string (Handlers::*)(std::span<const std::string_view>)>
         dispatchTable { { "ping", &Handlers::ping },   { "echo", &Handlers::echo },   { "set", &Handlers::set },
                         { "get", &Handlers::get },     { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange },
-                        { "lpush", &Handlers::lpush }, { "llen", &Handlers::llen } };
+                        { "lpush", &Handlers::lpush }, { "llen", &Handlers::llen },   { "lpop", &Handlers::lpop } };
 
     if (const auto it { dispatchTable.find(request.command) }; it != dispatchTable.end())
         return std::invoke(it->second, this, request.data);

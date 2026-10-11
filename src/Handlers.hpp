@@ -30,6 +30,7 @@ private:
     std::string lrange(std::span<const std::string_view>);
     std::string lpush(std::span<const std::string_view>);
     std::string llen(std::span<const std::string_view>);
+    std::string lpop(std::span<const std::string_view>);
 
     Store::iterator findLive(const std::string& key);
     static bool isExpired(const Value& entry);

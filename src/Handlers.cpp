@@ -276,15 +276,16 @@ asio::awaitable<std::string> Handlers::blpop(std::span<const std::string_view> d
         co_return wrongNArgsErr("blpop");
 
     const std::string key { data[0] };
-    const auto num { Helpers::parseNum<int>(data[1]) };
+    const auto num { Helpers::parseNum<double>(data[1]) };
     if (!num)
         co_return std::string { intOutOfRangeErr };
 
     auto executor { co_await asio::this_coro::executor };
 
     using Clock = asio::steady_timer::clock_type;
-    asio::steady_timer t { executor,
-                           *num == 0 ? Clock::time_point::max() : Clock::now() + asio::chrono::seconds { *num } };
+    const std::chrono::duration<double> timeout { *num };
+    asio::steady_timer t { executor, *num == 0 ? Clock::time_point::max()
+                                               : Clock::now() + std::chrono::duration_cast<Clock::duration>(timeout) };
 
     while (true)
     {

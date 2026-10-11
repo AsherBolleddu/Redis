@@ -9,8 +9,8 @@
 namespace Helpers
 {
     template <typename T>
-    concept StrictNumeric =
-        (std::integral<T>) && !std::same_as<T, bool> && !std::same_as<T, char> && !std::same_as<T, wchar_t>;
+    concept StrictNumeric = (std::integral<T> || std::floating_point<T>) && !std::same_as<T, bool> &&
+                            !std::same_as<T, char> && !std::same_as<T, wchar_t>;
 
     template <StrictNumeric T>
     std::optional<T> parseNum(std::string_view sv)

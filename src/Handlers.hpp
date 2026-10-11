@@ -28,8 +28,10 @@ private:
     std::string get(std::span<const std::string_view>);
     std::string rpush(std::span<const std::string_view>);
     std::string lrange(std::span<const std::string_view>);
+    std::string lpush(std::span<const std::string_view>);
 
     Store::iterator findLive(const std::string& key);
+    static bool isExpired(const Value& entry);
 
 public:
     std::string execute(const RESP::BulkString& request);

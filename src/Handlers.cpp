@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace
 {
@@ -29,14 +30,18 @@ namespace
     constexpr std::string_view emptyArray { "*0\r\n" };
 } // namespace
 
+bool Handlers::isExpired(const Value& entry)
+{
+    return entry.expiresAt && std::chrono::steady_clock::now() > *entry.expiresAt;
+}
+
 Handlers::Store::iterator Handlers::findLive(const std::string& key)
 {
     const auto it { m_kvStore.find(key) };
     if (it == m_kvStore.end())
         return it;
 
-    const auto& entry { it->second };
-    if (entry.expiresAt && std::chrono::steady_clock::now() > *entry.expiresAt)
+    if (isExpired(it->second))
     {
         m_kvStore.erase(it);
         return m_kvStore.end();
@@ -114,15 +119,16 @@ std::string Handlers::rpush(std::span<const std::string_view> data)
         return wrongNArgsErr("rpush");
 
     const std::string key { data.front() };
-    auto it { findLive(key) };
-    if (it == m_kvStore.end())
-        it = m_kvStore.try_emplace(key, Value { .data { std::vector<std::string> {} }, .expiresAt {} }).first;
+    const auto [it, inserted] { m_kvStore.try_emplace(
+        key, Value { .data { std::vector<std::string> {} }, .expiresAt { std::nullopt } }) };
+    if (auto& entry { it->second }; !inserted && isExpired(entry))
+        entry = { .data { std::vector<std::string> {} }, .expiresAt { std::nullopt } };
 
     auto* list { std::get_if<std::vector<std::string>>(&it->second.data) };
     if (!list)
         return std::string { wrongTypeErr };
 
-    for (auto elem : data.subspan(1, data.size() - 1))
+    for (const auto elem : data.subspan(1))
         list->emplace_back(elem);
 
     return std::format(":{}\r\n", list->size());
@@ -173,11 +179,34 @@ std::string Handlers::lrange(std::span<const std::string_view> data)
     return output;
 }
 
+std::string Handlers::lpush(std::span<const std::string_view> data)
+{
+    if (data.size() < 2)
+        return wrongNArgsErr("lpush");
+
+    const std::string key { data.front() };
+    const auto [it, inserted] { m_kvStore.try_emplace(
+        key, Value { .data { std::vector<std::string> {} }, .expiresAt { std::nullopt } }) };
+
+    if (auto& entry { it->second }; !inserted && isExpired(entry))
+        entry = { .data { std::vector<std::string> {} }, .expiresAt { std::nullopt } };
+
+    auto* list { std::get_if<std::vector<std::string>>(&it->second.data) };
+    if (!list)
+        return std::string { wrongTypeErr };
+
+    for (const auto item : data.subspan(1))
+        list->emplace(list->begin(), item);
+
+    return std::format(":{}\r\n", list->size());
+}
+
 std::string Handlers::execute(const RESP::BulkString& request)
 {
     static const std::unordered_map<std::string, std::string (Handlers::*)(std::span<const std::string_view>)>
-        dispatchTable { { "ping", &Handlers::ping }, { "echo", &Handlers::echo },   { "set", &Handlers::set },
-                        { "get", &Handlers::get },   { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange } };
+        dispatchTable { { "ping", &Handlers::ping },  { "echo", &Handlers::echo },   { "set", &Handlers::set },
+                        { "get", &Handlers::get },    { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange },
+                        { "lpush", &Handlers::lpush } };
 
     if (const auto it { dispatchTable.find(request.command) }; it != dispatchTable.end())
         return std::invoke(it->second, this, request.data);

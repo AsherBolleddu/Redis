@@ -2,6 +2,8 @@
 #include "Helpers.hpp"
 #include "Replies.hpp"
 #include <asio.hpp>
+#include <cstddef>
+#include <format>
 #include <optional>
 #include <span>
 #include <string>
@@ -37,8 +39,10 @@ asio::awaitable<std::string> Handlers::xadd(std::span<const std::string_view> da
     if (data.size() < 4 || data.size() % 2 != 0)
         co_return Replies::wrongNArgsErr("xadd");
 
-    std::string newID { data[1] };
-    if (newID == "0-0")
+    const auto parsed { Helpers::parseID(data[1]) };
+    if (!parsed)
+        co_return std::string { Replies::invalidStreamID };
+    if (parsed->ms == 0 && parsed->seq == 0ULL)
         co_return "-ERR The ID specified in XADD must be greater than 0-0\r\n";
 
     const auto [it, inserted] { m_kvStore.try_emplace(std::string { data.front() }) };
@@ -49,30 +53,26 @@ asio::awaitable<std::string> Handlers::xadd(std::span<const std::string_view> da
     if (!stream)
         co_return std::string { Replies::wrongTypeErr };
 
-    auto& idArr { stream->idArr };
-    if (idArr.empty())
-    {
-        idArr.push_back(std::move(newID));
-        co_return std::format("${}\r\n{}\r\n", idArr.back().size(), idArr.back());
-    }
+    unsigned long long seq {};
+    if (parsed->seq)
+        seq = *parsed->seq;
+    else if (!stream->empty() && stream->back().id.ms == parsed->ms)
+        seq = stream->back().id.seq + 1;
+    else if (parsed->ms == 0)
+        seq = 1;
 
-    std::string_view prevID { idArr.back() };
-    if (prevID >= newID)
-        co_return "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n";
+    const StreamEntry::StreamID newID { parsed->ms, seq };
 
-    const auto splitPrevID { Helpers::parseID(prevID) };
-    const auto splitNewID { Helpers::parseID(newID) };
-    if (!splitPrevID || !splitNewID)
-        co_return "-ERR\r\n";
+    if (!stream->empty() && newID <= stream->back().id)
+        co_return std::string { Replies::entryIDError };
 
-    // millisecondsTime -> first, sequenceNumber->second
-    if (splitPrevID->first == splitNewID->first && splitPrevID->second >= splitNewID->second)
-        co_return "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n";
+    StreamEntry entry { .id { newID }, .fields {} };
+    const auto pairs { data.subspan(2) };
 
-    idArr.push_back(std::move(newID));
-    std::span pairs { data.subspan(2) };
     for (std::size_t i { 1 }; i < pairs.size(); i += 2)
-        stream->kvPairs.insert_or_assign(std::string { pairs[i - 1] }, pairs[1]);
+        entry.fields.emplace_back(pairs[i - 1], pairs[i]);
 
-    co_return std::format("${}\r\n{}\r\n", idArr.back().size(), idArr.back());
+    stream->push_back(std::move(entry));
+    const auto idStr { std::format("{}-{}", newID.ms, newID.seq) };
+    co_return std::format("${}\r\n{}\r\n", idStr.size(), idStr);
 }

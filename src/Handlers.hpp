@@ -10,7 +10,9 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
+#include <vector>
 
 class Handlers
 {
@@ -23,13 +25,22 @@ private:
         std::size_t operator()(std::string_view sv) const { return std::hash<std::string_view> {}(sv); }
     };
 
-    struct Stream
+    struct StreamEntry
     {
-        std::vector<std::string> idArr;
-        std::unordered_map<std::string, std::string> kvPairs;
+        struct StreamID
+        {
+            unsigned long long ms;
+            unsigned long long seq;
+            auto operator<=>(const StreamID&) const = default;
+        };
+
+        StreamID id;
+        std::vector<std::pair<std::string, std::string>> fields;
     };
 
     using List = std::deque<std::string>;
+    using Stream = std::vector<StreamEntry>;
+
     struct Value
     {
         std::variant<std::string, List, Stream> data;

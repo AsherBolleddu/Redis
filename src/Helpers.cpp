@@ -1,14 +1,26 @@
 #include "Helpers.hpp"
-#include <utility>
+#include <optional>
 
 namespace Helpers
 {
-    std::optional<std::pair<std::string_view, std::string_view>> parseID(std::string_view id)
+    std::optional<ParsedID> parseID(std::string_view id)
     {
-        auto find { id.find('-') };
-        if (find == std::string_view::npos)
+        const auto dash { id.find('-') };
+        const auto ms { parseNum<unsigned long long>(id.substr(0, dash)) };
+        if (!ms)
             return {};
 
-        return { { id.substr(0, find), id.substr(find + 1) } };
+        if (dash == std::string_view::npos)
+            return { { *ms, 0 } };
+
+        const auto seqSv { id.substr(dash + 1) };
+        if (seqSv == "*")
+            return { { *ms, std::nullopt } };
+
+        const auto seq { parseNum<unsigned long long>(seqSv) };
+        if (!seq)
+            return {};
+
+        return { { *ms, *seq } };
     }
 } // namespace Helpers

@@ -5,7 +5,6 @@
 #include <optional>
 #include <string_view>
 #include <system_error>
-#include <utility>
 
 namespace Helpers
 {
@@ -24,5 +23,11 @@ namespace Helpers
         return num;
     }
 
-    std::optional<std::pair<std::string_view, std::string_view>> parseID(std::string_view id);
+    struct ParsedID
+    {
+        unsigned long long ms;
+        std::optional<unsigned long long> seq;
+    };
+
+    std::optional<ParsedID> parseID(std::string_view id);
 } // namespace Helpers

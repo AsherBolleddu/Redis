@@ -25,7 +25,7 @@ private:
 
     struct Stream
     {
-        std::string entryID;
+        std::vector<std::string> idArr;
         std::unordered_map<std::string, std::string> kvPairs;
     };
 

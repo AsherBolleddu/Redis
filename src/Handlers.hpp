@@ -11,14 +11,14 @@
 #include <string_view>
 #include <unordered_map>
 #include <variant>
-#include <vector>
 
 class Handlers
 {
 private:
+    using List = std::deque<std::string>;
     struct Value
     {
-        std::variant<std::string, std::vector<std::string>> data;
+        std::variant<std::string, List> data;
         std::optional<std::chrono::steady_clock::time_point> expiresAt;
     };
 
@@ -36,8 +36,10 @@ private:
     asio::awaitable<std::string> llen(std::span<const std::string_view>);
     asio::awaitable<std::string> lpop(std::span<const std::string_view>);
     asio::awaitable<std::string> blpop(std::span<const std::string_view>);
+    asio::awaitable<std::string> type(std::span<const std::string_view>);
 
     Store::iterator findLive(const std::string& key);
+    void wakeWaiters(const std::string& key, std::size_t count);
     static bool isExpired(const Value& entry);
 
 public:

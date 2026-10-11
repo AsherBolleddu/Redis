@@ -201,12 +201,28 @@ std::string Handlers::lpush(std::span<const std::string_view> data)
     return std::format(":{}\r\n", list->size());
 }
 
+std::string Handlers::llen(std::span<const std::string_view> data)
+{
+    if (data.size() != 1)
+        return wrongNArgsErr("llen");
+
+    auto it { findLive(std::string { data[0] }) };
+    if (it == m_kvStore.end())
+        return ":0\r\n";
+
+    const auto* list { std::get_if<std::vector<std::string>>(&it->second.data) };
+    if (!list)
+        return std::string { wrongTypeErr };
+
+    return std::format(":{}\r\n", list->size());
+}
+
 std::string Handlers::execute(const RESP::BulkString& request)
 {
     static const std::unordered_map<std::string, std::string (Handlers::*)(std::span<const std::string_view>)>
-        dispatchTable { { "ping", &Handlers::ping },  { "echo", &Handlers::echo },   { "set", &Handlers::set },
-                        { "get", &Handlers::get },    { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange },
-                        { "lpush", &Handlers::lpush } };
+        dispatchTable { { "ping", &Handlers::ping },   { "echo", &Handlers::echo },   { "set", &Handlers::set },
+                        { "get", &Handlers::get },     { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange },
+                        { "lpush", &Handlers::lpush }, { "llen", &Handlers::llen } };
 
     if (const auto it { dispatchTable.find(request.command) }; it != dispatchTable.end())
         return std::invoke(it->second, this, request.data);

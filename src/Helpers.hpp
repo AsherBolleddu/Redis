@@ -25,7 +25,7 @@ namespace Helpers
 
     struct ParsedID
     {
-        unsigned long long ms;
+        std::optional<unsigned long long> ms;
         std::optional<unsigned long long> seq;
     };
 

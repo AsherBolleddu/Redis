@@ -2,6 +2,7 @@
 #include "Helpers.hpp"
 #include "Replies.hpp"
 #include <asio.hpp>
+#include <chrono>
 #include <cstddef>
 #include <format>
 #include <optional>
@@ -9,7 +10,6 @@
 #include <string>
 #include <string_view>
 #include <variant>
-
 namespace
 {
     template <typename... Ts>
@@ -42,7 +42,7 @@ asio::awaitable<std::string> Handlers::xadd(std::span<const std::string_view> da
     const auto parsed { Helpers::parseID(data[1]) };
     if (!parsed)
         co_return std::string { Replies::invalidStreamID };
-    if (parsed->ms == 0 && parsed->seq == 0ULL)
+    if (parsed->ms == 0ULL && parsed->seq == 0ULL)
         co_return "-ERR The ID specified in XADD must be greater than 0-0\r\n";
 
     const auto [it, inserted] { m_kvStore.try_emplace(std::string { data.front() }) };
@@ -53,15 +53,24 @@ asio::awaitable<std::string> Handlers::xadd(std::span<const std::string_view> da
     if (!stream)
         co_return std::string { Replies::wrongTypeErr };
 
+    const auto nowMS { std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()) };
+
+    auto ms { static_cast<unsigned long long>(nowMS.count()) };
+    if (parsed->ms)
+        ms = *parsed->ms;
+    else if (!stream->empty() && ms < stream->back().id.ms)
+        ms = stream->back().id.ms;
+
     unsigned long long seq {};
     if (parsed->seq)
         seq = *parsed->seq;
-    else if (!stream->empty() && stream->back().id.ms == parsed->ms)
+    else if (!stream->empty() && stream->back().id.ms == ms)
         seq = stream->back().id.seq + 1;
-    else if (parsed->ms == 0)
+    else if (ms == 0)
         seq = 1;
 
-    const StreamEntry::StreamID newID { parsed->ms, seq };
+    const StreamEntry::StreamID newID { ms, seq };
 
     if (!stream->empty() && newID <= stream->back().id)
         co_return std::string { Replies::entryIDError };

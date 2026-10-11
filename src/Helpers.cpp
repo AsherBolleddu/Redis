@@ -5,6 +5,9 @@ namespace Helpers
 {
     std::optional<ParsedID> parseID(std::string_view id)
     {
+        if (id == "*")
+            return { { std::nullopt, std::nullopt } };
+
         const auto dash { id.find('-') };
         const auto ms { parseNum<unsigned long long>(id.substr(0, dash)) };
         if (!ms)

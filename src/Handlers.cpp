@@ -220,7 +220,7 @@ std::string Handlers::llen(std::span<const std::string_view> data)
 
 std::string Handlers::lpop(std::span<const std::string_view> data)
 {
-    if (data.size() != 1)
+    if (data.size() < 1 || data.size() > 2)
         return wrongNArgsErr("lpop");
 
     auto it { findLive(std::string { data[0] }) };
@@ -231,10 +231,26 @@ std::string Handlers::lpop(std::span<const std::string_view> data)
     if (!list)
         return std::string { wrongTypeErr };
 
-    auto first { list->front() };
-    list->erase(list->begin());
+    if (data.size() == 1)
+    {
+        auto first { list->front() };
+        list->erase(list->begin());
 
-    return std::format("${}\r\n{}\r\n", first.size(), first);
+        return std::format("${}\r\n{}\r\n", first.size(), first);
+    }
+
+    auto numRemovals { Helpers::parseNum<int>(data[1]) };
+    if (!numRemovals)
+        return std::string { intOutOfRangeErr };
+
+    std::string output { std::format("*{}\r\n", *numRemovals) };
+    for (int i { 0 }; i < numRemovals; ++i)
+    {
+        std::format_to(std::back_inserter(output), "${}\r\n{}\r\n", list->front().size(), list->front());
+        list->erase(list->begin());
+    }
+
+    return output;
 }
 
 std::string Handlers::execute(const RESP::BulkString& request)

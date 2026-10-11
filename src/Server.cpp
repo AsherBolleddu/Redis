@@ -70,7 +70,7 @@ asio::awaitable<void> Server::handleClient(tcp::socket socket)
                     continue;
                 }
 
-                output += m_handler.execute(*request->info);
+                output += co_await m_handler.execute(*request->info);
                 input.erase(0, request->bytesConsumed);
             }
 

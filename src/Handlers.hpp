@@ -2,9 +2,9 @@
 
 #include "RESP.hpp"
 #include <asio.hpp>
-#include <asio/steady_timer.hpp>
 #include <chrono>
 #include <deque>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -15,17 +15,33 @@
 class Handlers
 {
 private:
+    struct StringHash
+    {
+        using is_transparent = void;
+        std::size_t operator()(const char* txt) const { return std::hash<std::string_view> {}(txt); }
+        std::size_t operator()(const std::string& str) const { return std::hash<std::string> {}(str); }
+        std::size_t operator()(std::string_view sv) const { return std::hash<std::string_view> {}(sv); }
+    };
+
+    struct Stream
+    {
+        std::string entryID;
+        std::unordered_map<std::string, std::string> kvPairs;
+    };
+
     using List = std::deque<std::string>;
     struct Value
     {
-        std::variant<std::string, List> data;
+        std::variant<std::string, List, Stream> data;
         std::optional<std::chrono::steady_clock::time_point> expiresAt;
     };
 
-    using Store = std::unordered_map<std::string, Value>;
-
+    using Store = std::unordered_map<std::string, Value, StringHash, std::equal_to<>>;
     Store m_kvStore;
-    std::unordered_map<std::string, std::deque<asio::steady_timer*>> m_waiters;
+
+    std::unordered_map<std::string, std::deque<asio::steady_timer*>, StringHash, std::equal_to<>> m_waiters;
+
+private:
     asio::awaitable<std::string> ping(std::span<const std::string_view>);
     asio::awaitable<std::string> echo(std::span<const std::string_view>);
     asio::awaitable<std::string> set(std::span<const std::string_view>);
@@ -37,9 +53,10 @@ private:
     asio::awaitable<std::string> lpop(std::span<const std::string_view>);
     asio::awaitable<std::string> blpop(std::span<const std::string_view>);
     asio::awaitable<std::string> type(std::span<const std::string_view>);
+    asio::awaitable<std::string> xadd(std::span<const std::string_view>);
 
-    Store::iterator findLive(const std::string& key);
-    void wakeWaiters(const std::string& key, std::size_t count);
+    Store::iterator findLive(std::string_view key);
+    void wakeWaiters(std::string_view key, std::size_t count);
     static bool isExpired(const Value& entry);
 
 public:

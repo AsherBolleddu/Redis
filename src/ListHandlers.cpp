@@ -5,6 +5,7 @@
 #include <asio.hpp>
 #include <cstddef>
 #include <format>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <string>
@@ -15,9 +16,8 @@ asio::awaitable<std::string> Handlers::rpush(std::span<const std::string_view> d
     if (data.size() < 2)
         co_return Replies::wrongNArgsErr("rpush");
 
-    const std::string key { data.front() };
-    const auto [it, inserted] { m_kvStore.try_emplace(key, Value { .data { List {} }, .expiresAt { std::nullopt } }) };
-    if (auto& entry { it->second }; !inserted && isExpired(entry))
+    const auto [it, inserted] { m_kvStore.try_emplace(std::string { data.front() }) };
+    if (auto& entry { it->second }; inserted || isExpired(entry))
         entry = { .data { List {} }, .expiresAt { std::nullopt } };
 
     auto* list { std::get_if<List>(&it->second.data) };
@@ -27,7 +27,7 @@ asio::awaitable<std::string> Handlers::rpush(std::span<const std::string_view> d
     for (const auto elem : data.subspan(1))
         list->emplace_back(elem);
 
-    wakeWaiters(key, data.size() - 1);
+    wakeWaiters(data.front(), data.size() - 1);
 
     co_return std::format(":{}\r\n", list->size());
 }
@@ -37,8 +37,7 @@ asio::awaitable<std::string> Handlers::lrange(std::span<const std::string_view> 
     if (data.size() != 3)
         co_return Replies::wrongNArgsErr("lrange");
 
-    const std::string key { data.front() };
-    const auto it { findLive(key) };
+    const auto it { findLive(data.front()) };
     if (it == m_kvStore.end())
         co_return std::string { Replies::emptyArray };
 
@@ -82,10 +81,9 @@ asio::awaitable<std::string> Handlers::lpush(std::span<const std::string_view> d
     if (data.size() < 2)
         co_return Replies::wrongNArgsErr("lpush");
 
-    const std::string key { data.front() };
-    const auto [it, inserted] { m_kvStore.try_emplace(key, Value { .data { List {} }, .expiresAt { std::nullopt } }) };
+    const auto [it, inserted] { m_kvStore.try_emplace(std::string { data.front() }) };
 
-    if (auto& entry { it->second }; !inserted && isExpired(entry))
+    if (auto& entry { it->second }; inserted || isExpired(entry))
         entry = { .data { List {} }, .expiresAt { std::nullopt } };
 
     auto* list { std::get_if<List>(&it->second.data) };
@@ -95,7 +93,7 @@ asio::awaitable<std::string> Handlers::lpush(std::span<const std::string_view> d
     for (const auto item : data.subspan(1))
         list->emplace_front(item);
 
-    wakeWaiters(key, data.size() - 1);
+    wakeWaiters(data.front(), data.size() - 1);
 
     co_return std::format(":{}\r\n", list->size());
 }
@@ -105,7 +103,7 @@ asio::awaitable<std::string> Handlers::llen(std::span<const std::string_view> da
     if (data.size() != 1)
         co_return Replies::wrongNArgsErr("llen");
 
-    auto it { findLive(std::string { data[0] }) };
+    auto it { findLive(data.front()) };
     if (it == m_kvStore.end())
         co_return ":0\r\n";
 
@@ -121,9 +119,7 @@ asio::awaitable<std::string> Handlers::lpop(std::span<const std::string_view> da
     if (data.size() < 1 || data.size() > 2)
         co_return Replies::wrongNArgsErr("lpop");
 
-    const std::string key { data[0] };
-
-    auto it { findLive(key) };
+    auto it { findLive(data.front()) };
     if (it == m_kvStore.end())
         co_return std::string { Replies::nullBulkString };
 
@@ -165,7 +161,7 @@ asio::awaitable<std::string> Handlers::blpop(std::span<const std::string_view> d
     if (data.size() != 2)
         co_return Replies::wrongNArgsErr("blpop");
 
-    const std::string key { data[0] };
+    const std::string key { data.front() };
     const auto num { Helpers::parseNum<double>(data[1]) };
     if (!num)
         co_return std::string { Replies::intOutOfRangeErr };

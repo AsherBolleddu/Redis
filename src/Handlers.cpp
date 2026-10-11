@@ -17,7 +17,7 @@ bool Handlers::isExpired(const Value& entry)
     return entry.expiresAt && std::chrono::steady_clock::now() > *entry.expiresAt;
 }
 
-void Handlers::wakeWaiters(const std::string& key, std::size_t count)
+void Handlers::wakeWaiters(std::string_view key, std::size_t count)
 {
     const auto it { m_waiters.find(key) };
     if (it == m_waiters.end())
@@ -33,7 +33,7 @@ void Handlers::wakeWaiters(const std::string& key, std::size_t count)
         m_waiters.erase(it);
 }
 
-Handlers::Store::iterator Handlers::findLive(const std::string& key)
+Handlers::Store::iterator Handlers::findLive(std::string_view key)
 {
     const auto it { m_kvStore.find(key) };
     if (it == m_kvStore.end())
@@ -68,7 +68,7 @@ asio::awaitable<std::string> Handlers::execute(const RESP::BulkString& request)
         dispatchTable { { "ping", &Handlers::ping },   { "echo", &Handlers::echo },   { "set", &Handlers::set },
                         { "get", &Handlers::get },     { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange },
                         { "lpush", &Handlers::lpush }, { "llen", &Handlers::llen },   { "lpop", &Handlers::lpop },
-                        { "blpop", &Handlers::blpop }, { "type", &Handlers::type } };
+                        { "blpop", &Handlers::blpop }, { "type", &Handlers::type },   { "xadd", &Handlers::xadd } };
 
     if (const auto it { dispatchTable.find(request.command) }; it != dispatchTable.end())
         co_return co_await std::invoke(it->second, this, request.data);

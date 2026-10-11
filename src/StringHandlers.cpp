@@ -2,11 +2,14 @@
 #include "Helpers.hpp"
 #include "Replies.hpp"
 #include <asio.hpp>
+#include <cctype>
 #include <chrono>
+#include <format>
 #include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <utility>
 
 asio::awaitable<std::string> Handlers::set(std::span<const std::string_view> data)
 {
@@ -46,8 +49,7 @@ asio::awaitable<std::string> Handlers::get(std::span<const std::string_view> dat
     if (data.size() != 1)
         co_return Replies::wrongNArgsErr("get");
 
-    const std::string key { data.front() };
-    const auto it { findLive(key) };
+    const auto it { findLive(data.front()) };
     if (it == m_kvStore.end())
         co_return std::string { Replies::nullBulkString };
 

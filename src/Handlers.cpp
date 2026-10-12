@@ -33,6 +33,15 @@ void Handlers::wakeWaiters(std::string_view key, std::size_t count)
         m_waiters.erase(it);
 }
 
+void Handlers::appendEntry(std::string& out, const StreamEntry& entry)
+{
+    std::string formattedID { std::format("{}-{}", entry.id.ms, entry.id.seq) };
+    std::format_to(std::back_inserter(out), "*2\r\n${}\r\n{}\r\n*{}\r\n", formattedID.size(), formattedID,
+                   entry.fields.size() * 2);
+    for (const auto& [key, value] : entry.fields)
+        std::format_to(std::back_inserter(out), "${}\r\n{}\r\n${}\r\n{}\r\n", key.size(), key, value.size(), value);
+}
+
 Handlers::Store::iterator Handlers::findLive(std::string_view key)
 {
     const auto it { m_kvStore.find(key) };

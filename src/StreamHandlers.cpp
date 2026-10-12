@@ -118,17 +118,9 @@ asio::awaitable<std::string> Handlers::xrange(std::span<const std::string_view> 
     if (first >= last)
         co_return std::string { Replies::emptyArray };
 
-    const std::size_t length { static_cast<std::size_t>(last - first) };
-    std::string output { std::format("*{}\r\n", length) };
+    std::string output { std::format("*{}\r\n", static_cast<std::size_t>(last - first)) };
     for (auto entry { first }; entry < last; ++entry)
-    {
-        std::string formattedID { std::format("{}-{}", entry->id.ms, entry->id.seq) };
-        std::format_to(std::back_inserter(output), "*2\r\n${}\r\n{}\r\n*{}\r\n", formattedID.size(), formattedID,
-                       entry->fields.size() * 2);
-        for (const auto& [key, value] : entry->fields)
-            std::format_to(std::back_inserter(output), "${}\r\n{}\r\n${}\r\n{}\r\n", key.size(), key, value.size(),
-                           value);
-    }
+        appendEntry(output, *entry);
 
     co_return output;
 }
@@ -141,35 +133,48 @@ asio::awaitable<std::string> Handlers::xread(std::span<const std::string_view> d
     if (!Helpers::isEquals(data.front(), "streams"))
         co_return std::string { Replies::syntaxError };
 
-    const auto parsed { Helpers::parseID(data[2]) };
-    if (!parsed || !parsed->ms || !parsed->seq)
-        co_return std::string { Replies::invalidStreamID };
+    const auto args { data.subspan(1) };
+    if (args.size() % 2 != 0)
+        co_return "-ERR Unbalanced 'xread' list of streams: for each stream key an ID, '+', or '$' must be "
+                  "specified.\r\n";
 
-    const auto it { findLive(data[1]) };
-    if (it == m_kvStore.end())
-        co_return std::string { Replies::nullArray };
+    const auto half { args.size() / 2 };
+    const auto keys { args.first(half) };
+    const auto ids { args.last(half) };
+    std::string body {};
+    std::size_t numStreams { 0 };
 
-    const auto* stream { std::get_if<Stream>(&it->second.data) };
-    if (!stream)
-        co_return std::string { Replies::wrongTypeErr };
-
-    const StreamEntry::StreamID startID { .ms = *parsed->ms, .seq = *parsed->seq };
-
-    const auto start { std::ranges::upper_bound(*stream, startID, {}, &StreamEntry::id) };
-    if (start == stream->end())
-        co_return std::string { Replies::nullArray };
-
-    std::string output { std::format("*1\r\n*2\r\n${}\r\n{}\r\n*{}\r\n", data[1].size(), data[1],
-                                     static_cast<std::size_t>(stream->end() - start)) };
-    for (auto entry { start }; entry != stream->end(); ++entry)
+    for (std::size_t i { 0 }; i < keys.size(); ++i)
     {
-        std::string formattedID { std::format("{}-{}", entry->id.ms, entry->id.seq) };
-        std::format_to(std::back_inserter(output), "*2\r\n${}\r\n{}\r\n*{}\r\n", formattedID.size(), formattedID,
-                       entry->fields.size() * 2);
-        for (const auto& [key, value] : entry->fields)
-            std::format_to(std::back_inserter(output), "${}\r\n{}\r\n${}\r\n{}\r\n", key.size(), key, value.size(),
-                           value);
+        const auto parsed { Helpers::parseID(ids[i]) };
+        if (!parsed || !parsed->ms || !parsed->seq)
+            co_return std::string { Replies::invalidStreamID };
+
+        const auto it { findLive(keys[i]) };
+        if (it == m_kvStore.end())
+            continue;
+
+        const auto* stream { std::get_if<Stream>(&it->second.data) };
+        if (!stream)
+            co_return std::string { Replies::wrongTypeErr };
+
+        const StreamEntry::StreamID startID { .ms = *parsed->ms, .seq = *parsed->seq };
+
+        const auto start { std::ranges::upper_bound(*stream, startID, {}, &StreamEntry::id) };
+        if (start == stream->end())
+            continue;
+
+        ++numStreams;
+
+        std::format_to(std::back_inserter(body), "*2\r\n${}\r\n{}\r\n*{}\r\n", keys[i].size(), keys[i],
+                       static_cast<std::size_t>(stream->end() - start));
+
+        for (auto entry { start }; entry != stream->end(); ++entry)
+            appendEntry(body, *entry);
     }
 
-    co_return output;
+    if (numStreams == 0)
+        co_return std::string { Replies::nullArray };
+
+    co_return std::format("*{}\r\n{}", numStreams, body);
 }

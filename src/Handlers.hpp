@@ -71,6 +71,7 @@ private:
     Store::iterator findLive(std::string_view key);
     void wakeWaiters(std::string_view key, std::size_t count);
     static bool isExpired(const Value& entry);
+    static void appendEntry(std::string& out, const StreamEntry& entry);
 
 public:
     asio::awaitable<std::string> execute(const RESP::BulkString& request);

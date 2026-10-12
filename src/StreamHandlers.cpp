@@ -98,8 +98,9 @@ asio::awaitable<std::string> Handlers::xrange(std::span<const std::string_view> 
     if (it == m_kvStore.end())
         co_return std::string { Replies::emptyArray };
 
+    constexpr auto maxNum { std::numeric_limits<unsigned long long>::max() };
     const auto start { Helpers::parseID(data[1] == "-" ? "0-0" : data[1]) };
-    const auto end { Helpers::parseID(data[2], std::numeric_limits<unsigned long long>::max()) };
+    const auto end { Helpers::parseID(data[2] == "+" ? std::to_string(maxNum) : data[2], maxNum) };
     if (!start || !end || !start->ms || !end->ms || !start->seq || !end->seq)
         co_return std::string { Replies::invalidStreamID };
 

@@ -1,10 +1,13 @@
 #include "Handlers.hpp"
 #include "Helpers.hpp"
 #include "Replies.hpp"
+#include <algorithm>
 #include <asio.hpp>
 #include <chrono>
 #include <cstddef>
 #include <format>
+#include <iterator>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -84,4 +87,45 @@ asio::awaitable<std::string> Handlers::xadd(std::span<const std::string_view> da
     stream->push_back(std::move(entry));
     const auto idStr { std::format("{}-{}", newID.ms, newID.seq) };
     co_return std::format("${}\r\n{}\r\n", idStr.size(), idStr);
+}
+
+asio::awaitable<std::string> Handlers::xrange(std::span<const std::string_view> data)
+{
+    if (data.size() != 3)
+        co_return Replies::wrongNArgsErr("xrange");
+
+    const auto it { findLive(data.front()) };
+    if (it == m_kvStore.end())
+        co_return std::string { Replies::emptyArray };
+
+    const auto start { Helpers::parseID(data[1]) };
+    const auto end { Helpers::parseID(data[2], std::numeric_limits<unsigned long long>::max()) };
+    if (!start || !end || !start->ms || !end->ms || !start->seq || !end->seq)
+        co_return std::string { Replies::invalidStreamID };
+
+    const auto* stream { std::get_if<Stream>(&it->second.data) };
+    if (!stream)
+        co_return std::string { Replies::wrongTypeErr };
+
+    const StreamEntry::StreamID startID { .ms = *start->ms, .seq = *start->seq };
+    const StreamEntry::StreamID endID { .ms = *end->ms, .seq = *end->seq };
+
+    const auto first { std::ranges::lower_bound(*stream, startID, {}, &StreamEntry::id) };
+    const auto last { std::ranges::upper_bound(*stream, endID, {}, &StreamEntry::id) };
+    if (first >= last)
+        co_return std::string { Replies::emptyArray };
+
+    const std::size_t length { static_cast<std::size_t>(last - first) };
+    std::string output { std::format("*{}\r\n", length) };
+    for (auto entry { first }; entry < last; ++entry)
+    {
+        std::string formattedID { std::format("{}-{}", entry->id.ms, entry->id.seq) };
+        std::format_to(std::back_inserter(output), "*2\r\n${}\r\n{}\r\n*{}\r\n", formattedID.size(), formattedID,
+                       entry->fields.size() * 2);
+        for (const auto& field : entry->fields)
+            std::format_to(std::back_inserter(output), "${}\r\n{}\r\n${}\r\n{}\r\n", field.first.size(), field.first,
+                           field.second.size(), field.second);
+    }
+
+    co_return output;
 }

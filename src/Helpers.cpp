@@ -3,7 +3,7 @@
 
 namespace Helpers
 {
-    std::optional<ParsedID> parseID(std::string_view id)
+    std::optional<ParsedID> parseID(std::string_view id, unsigned long long defaultSeq)
     {
         if (id == "*")
             return { { std::nullopt, std::nullopt } };
@@ -14,7 +14,7 @@ namespace Helpers
             return {};
 
         if (dash == std::string_view::npos)
-            return { { *ms, 0 } };
+            return { { *ms, defaultSeq } };
 
         const auto seqSv { id.substr(dash + 1) };
         if (seqSv == "*")

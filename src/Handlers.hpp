@@ -65,6 +65,7 @@ private:
     asio::awaitable<std::string> blpop(std::span<const std::string_view>);
     asio::awaitable<std::string> type(std::span<const std::string_view>);
     asio::awaitable<std::string> xadd(std::span<const std::string_view>);
+    asio::awaitable<std::string> xrange(std::span<const std::string_view>);
 
     Store::iterator findLive(std::string_view key);
     void wakeWaiters(std::string_view key, std::size_t count);

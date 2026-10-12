@@ -29,5 +29,5 @@ namespace Helpers
         std::optional<unsigned long long> seq;
     };
 
-    std::optional<ParsedID> parseID(std::string_view id);
+    std::optional<ParsedID> parseID(std::string_view id, unsigned long long defaultSeq = 0);
 } // namespace Helpers

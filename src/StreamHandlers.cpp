@@ -3,12 +3,14 @@
 #include "Replies.hpp"
 #include <algorithm>
 #include <asio.hpp>
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <format>
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -123,9 +125,50 @@ asio::awaitable<std::string> Handlers::xrange(std::span<const std::string_view> 
         std::string formattedID { std::format("{}-{}", entry->id.ms, entry->id.seq) };
         std::format_to(std::back_inserter(output), "*2\r\n${}\r\n{}\r\n*{}\r\n", formattedID.size(), formattedID,
                        entry->fields.size() * 2);
-        for (const auto& field : entry->fields)
-            std::format_to(std::back_inserter(output), "${}\r\n{}\r\n${}\r\n{}\r\n", field.first.size(), field.first,
-                           field.second.size(), field.second);
+        for (const auto& [key, value] : entry->fields)
+            std::format_to(std::back_inserter(output), "${}\r\n{}\r\n${}\r\n{}\r\n", key.size(), key, value.size(),
+                           value);
+    }
+
+    co_return output;
+}
+
+asio::awaitable<std::string> Handlers::xread(std::span<const std::string_view> data)
+{
+    if (data.size() < 3)
+        co_return Replies::wrongNArgsErr("xread");
+
+    if (!Helpers::isEquals(data.front(), "streams"))
+        co_return std::string { Replies::syntaxError };
+
+    const auto parsed { Helpers::parseID(data[2]) };
+    if (!parsed || !parsed->ms || !parsed->seq)
+        co_return std::string { Replies::invalidStreamID };
+
+    const auto it { findLive(data[1]) };
+    if (it == m_kvStore.end())
+        co_return std::string { Replies::nullArray };
+
+    const auto* stream { std::get_if<Stream>(&it->second.data) };
+    if (!stream)
+        co_return std::string { Replies::wrongTypeErr };
+
+    const StreamEntry::StreamID startID { .ms = *parsed->ms, .seq = *parsed->seq };
+
+    const auto start { std::ranges::upper_bound(*stream, startID, {}, &StreamEntry::id) };
+    if (start == stream->end())
+        co_return std::string { Replies::nullArray };
+
+    std::string output { std::format("*1\r\n*2\r\n${}\r\n{}\r\n*{}\r\n", data[1].size(), data[1],
+                                     static_cast<std::size_t>(stream->end() - start)) };
+    for (auto entry { start }; entry != stream->end(); ++entry)
+    {
+        std::string formattedID { std::format("{}-{}", entry->id.ms, entry->id.seq) };
+        std::format_to(std::back_inserter(output), "*2\r\n${}\r\n{}\r\n*{}\r\n", formattedID.size(), formattedID,
+                       entry->fields.size() * 2);
+        for (const auto& [key, value] : entry->fields)
+            std::format_to(std::back_inserter(output), "${}\r\n{}\r\n${}\r\n{}\r\n", key.size(), key, value.size(),
+                           value);
     }
 
     co_return output;

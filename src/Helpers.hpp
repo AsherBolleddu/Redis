@@ -8,6 +8,9 @@
 
 namespace Helpers
 {
+
+    bool isEquals(std::string_view a, std::string_view b);
+
     template <typename T>
     concept StrictNumeric = (std::integral<T> || std::floating_point<T>) && !std::same_as<T, bool> &&
                             !std::same_as<T, char> && !std::same_as<T, wchar_t>;

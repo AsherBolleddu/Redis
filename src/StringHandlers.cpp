@@ -24,7 +24,7 @@ asio::awaitable<std::string> Handlers::set(std::span<const std::string_view> dat
                           }) |
                           std::ranges::to<std::string>() };
         if (unit != "px" && unit != "ex")
-            co_return "-ERR syntax error\r\n";
+            co_return std::string { Replies::syntaxError };
 
         const auto durationSV { data[3] };
         const auto duration { Helpers::parseNum<long long>(durationSV) };

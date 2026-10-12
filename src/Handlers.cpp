@@ -65,11 +65,11 @@ asio::awaitable<std::string> Handlers::execute(const RESP::BulkString& request)
 {
     static const std::unordered_map<std::string,
                                     asio::awaitable<std::string> (Handlers::*)(std::span<const std::string_view>)>
-        dispatchTable { { "ping", &Handlers::ping },    { "echo", &Handlers::echo },   { "set", &Handlers::set },
-                        { "get", &Handlers::get },      { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange },
-                        { "lpush", &Handlers::lpush },  { "llen", &Handlers::llen },   { "lpop", &Handlers::lpop },
-                        { "blpop", &Handlers::blpop },  { "type", &Handlers::type },   { "xadd", &Handlers::xadd },
-                        { "xrange", &Handlers::xrange } };
+        dispatchTable { { "ping", &Handlers::ping },     { "echo", &Handlers::echo },   { "set", &Handlers::set },
+                        { "get", &Handlers::get },       { "rpush", &Handlers::rpush }, { "lrange", &Handlers::lrange },
+                        { "lpush", &Handlers::lpush },   { "llen", &Handlers::llen },   { "lpop", &Handlers::lpop },
+                        { "blpop", &Handlers::blpop },   { "type", &Handlers::type },   { "xadd", &Handlers::xadd },
+                        { "xrange", &Handlers::xrange }, { "xread", &Handlers::xread } };
 
     if (const auto it { dispatchTable.find(request.command) }; it != dispatchTable.end())
         co_return co_await std::invoke(it->second, this, request.data);

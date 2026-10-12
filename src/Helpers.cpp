@@ -1,8 +1,16 @@
 #include "Helpers.hpp"
+#include <algorithm>
+#include <cctype>
 #include <optional>
 
 namespace Helpers
 {
+    bool isEquals(std::string_view a, std::string_view b)
+    {
+        return std::ranges::equal(a, b,
+                                  [](unsigned char x, unsigned char y) { return std::tolower(x) == std::tolower(y); });
+    }
+
     std::optional<ParsedID> parseID(std::string_view id, unsigned long long defaultSeq)
     {
         if (id == "*")

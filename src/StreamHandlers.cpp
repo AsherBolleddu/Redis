@@ -87,6 +87,7 @@ asio::awaitable<std::string> Handlers::xadd(std::span<const std::string_view> da
         entry.fields.emplace_back(pairs[i - 1], pairs[i]);
 
     stream->push_back(std::move(entry));
+    wakeWaiters(data.front(), std::numeric_limits<std::size_t>::max());
     const auto idStr { std::format("{}-{}", newID.ms, newID.seq) };
     co_return std::format("${}\r\n{}\r\n", idStr.size(), idStr);
 }
@@ -127,54 +128,96 @@ asio::awaitable<std::string> Handlers::xrange(std::span<const std::string_view> 
 
 asio::awaitable<std::string> Handlers::xread(std::span<const std::string_view> data)
 {
-    if (data.size() < 3)
-        co_return Replies::wrongNArgsErr("xread");
+    std::optional<std::chrono::milliseconds> duration {};
+    std::size_t pos { 0 };
 
-    if (!Helpers::isEquals(data.front(), "streams"))
+    if (pos < data.size() && Helpers::isEquals(data[pos], "block"))
+    {
+        if (pos + 1 >= data.size())
+            co_return std::string { Replies::syntaxError };
+
+        const auto ms { Helpers::parseNum<long long>(data[pos + 1]) };
+        if (!ms || *ms < 0)
+            co_return "-ERR timeout is not an integer or out of range\r\n";
+
+        duration = std::chrono::milliseconds { *ms };
+        pos += 2;
+    }
+
+    if (pos >= data.size() || !Helpers::isEquals(data[pos], "streams"))
         co_return std::string { Replies::syntaxError };
 
-    const auto args { data.subspan(1) };
-    if (args.size() % 2 != 0)
+    const auto args { data.subspan(pos + 1) };
+    if (args.empty() || args.size() % 2 != 0)
         co_return "-ERR Unbalanced 'xread' list of streams: for each stream key an ID, '+', or '$' must be "
                   "specified.\r\n";
 
     const auto half { args.size() / 2 };
     const auto keys { args.first(half) };
     const auto ids { args.last(half) };
-    std::string body {};
-    std::size_t numStreams { 0 };
 
-    for (std::size_t i { 0 }; i < keys.size(); ++i)
+    auto executor { co_await asio::this_coro::executor };
+    using Clock = asio::steady_timer::clock_type;
+
+    asio::steady_timer t { executor, Clock::time_point::max() };
+    if (duration && duration->count() > 0)
+        t.expires_at(Clock::now() + *duration);
+
+    while (true)
     {
-        const auto parsed { Helpers::parseID(ids[i]) };
-        if (!parsed || !parsed->ms || !parsed->seq)
-            co_return std::string { Replies::invalidStreamID };
+        std::string body {};
+        std::size_t numStreams { 0 };
+        for (std::size_t i { 0 }; i < keys.size(); ++i)
+        {
+            const auto parsed { Helpers::parseID(ids[i]) };
+            if (!parsed || !parsed->ms || !parsed->seq)
+                co_return std::string { Replies::invalidStreamID };
 
-        const auto it { findLive(keys[i]) };
-        if (it == m_kvStore.end())
-            continue;
+            const auto it { findLive(keys[i]) };
+            if (it == m_kvStore.end())
+                continue;
 
-        const auto* stream { std::get_if<Stream>(&it->second.data) };
-        if (!stream)
-            co_return std::string { Replies::wrongTypeErr };
+            const auto* stream { std::get_if<Stream>(&it->second.data) };
+            if (!stream)
+                co_return std::string { Replies::wrongTypeErr };
 
-        const StreamEntry::StreamID startID { .ms = *parsed->ms, .seq = *parsed->seq };
+            const StreamEntry::StreamID startID { .ms = *parsed->ms, .seq = *parsed->seq };
 
-        const auto start { std::ranges::upper_bound(*stream, startID, {}, &StreamEntry::id) };
-        if (start == stream->end())
-            continue;
+            const auto start { std::ranges::upper_bound(*stream, startID, {}, &StreamEntry::id) };
+            if (start == stream->end())
+                continue;
 
-        ++numStreams;
+            ++numStreams;
 
-        std::format_to(std::back_inserter(body), "*2\r\n${}\r\n{}\r\n*{}\r\n", keys[i].size(), keys[i],
-                       static_cast<std::size_t>(stream->end() - start));
+            std::format_to(std::back_inserter(body), "*2\r\n${}\r\n{}\r\n*{}\r\n", keys[i].size(), keys[i],
+                           static_cast<std::size_t>(stream->end() - start));
 
-        for (auto entry { start }; entry != stream->end(); ++entry)
-            appendEntry(body, *entry);
+            for (auto entry { start }; entry != stream->end(); ++entry)
+                appendEntry(body, *entry);
+        }
+
+        if (numStreams > 0)
+            co_return std::format("*{}\r\n{}", numStreams, body);
+
+        if (!duration)
+            co_return std::string { Replies::nullArray };
+
+        for (const auto key : keys)
+            m_waiters[std::string { key }].push_back(&t);
+
+        const auto [ec] { co_await t.async_wait(asio::as_tuple(asio::use_awaitable)) };
+
+        for (const auto key : keys)
+        {
+            if (const auto w { m_waiters.find(key) }; w != m_waiters.end())
+            {
+                std::erase(w->second, &t);
+                if (w->second.empty())
+                    m_waiters.erase(w);
+            }
+        }
+
+        if (!ec)
+            co_return std::string { Replies::nullArray };
     }
-
-    if (numStreams == 0)
-        co_return std::string { Replies::nullArray };
-
-    co_return std::format("*{}\r\n{}", numStreams, body);
 }

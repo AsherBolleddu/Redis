@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 namespace
 {
     template <typename... Ts>
@@ -156,6 +157,34 @@ asio::awaitable<std::string> Handlers::xread(std::span<const std::string_view> d
     const auto keys { args.first(half) };
     const auto ids { args.last(half) };
 
+    std::vector<StreamEntry::StreamID> startIDs {};
+    startIDs.reserve(keys.size());
+
+    for (std::size_t i { 0 }; i < keys.size(); ++i)
+    {
+        if (ids[i] == "$")
+        {
+            StreamEntry::StreamID last { .ms = 0, .seq = 0 };
+            if (const auto it { findLive(keys[i]) }; it != m_kvStore.end())
+            {
+                const auto* stream { std::get_if<Stream>(&it->second.data) };
+                if (!stream)
+                    co_return std::string { Replies::wrongTypeErr };
+                if (!stream->empty())
+                    last = stream->back().id;
+            }
+
+            startIDs.push_back(last);
+            continue;
+        }
+
+        const auto parsed { Helpers::parseID(ids[i]) };
+        if (!parsed || !parsed->ms || !parsed->seq)
+            co_return std::string { Replies::invalidStreamID };
+
+        startIDs.emplace_back(*parsed->ms, *parsed->seq);
+    }
+
     auto executor { co_await asio::this_coro::executor };
     using Clock = asio::steady_timer::clock_type;
 
@@ -169,10 +198,6 @@ asio::awaitable<std::string> Handlers::xread(std::span<const std::string_view> d
         std::size_t numStreams { 0 };
         for (std::size_t i { 0 }; i < keys.size(); ++i)
         {
-            const auto parsed { Helpers::parseID(ids[i]) };
-            if (!parsed || !parsed->ms || !parsed->seq)
-                co_return std::string { Replies::invalidStreamID };
-
             const auto it { findLive(keys[i]) };
             if (it == m_kvStore.end())
                 continue;
@@ -181,9 +206,7 @@ asio::awaitable<std::string> Handlers::xread(std::span<const std::string_view> d
             if (!stream)
                 co_return std::string { Replies::wrongTypeErr };
 
-            const StreamEntry::StreamID startID { .ms = *parsed->ms, .seq = *parsed->seq };
-
-            const auto start { std::ranges::upper_bound(*stream, startID, {}, &StreamEntry::id) };
+            const auto start { std::ranges::upper_bound(*stream, startIDs[i], {}, &StreamEntry::id) };
             if (start == stream->end())
                 continue;
 

@@ -1,4 +1,4 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/17880355-9d1e-4b45-a27b-6b57e7ec2704)](https://app.codecrafters.io/users/AsherBolleddu?r=2qF)
+[![progress-banner](https://backend.codecrafters.io/progress/redis/4ed74af6-79cd-4e91-b4db-2d6467dd5f1e)](https://app.codecrafters.io/users/AsherBolleddu?r=2qF)
 
 # Redis Server
 
